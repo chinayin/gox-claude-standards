@@ -1,0 +1,19 @@
+name: release
+
+# 纯规范数据仓库：push tag 时创建 GitHub release，
+# 供 goxctl claude 解析最新版本（ResolveLatest）与下载 source tarball。
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
