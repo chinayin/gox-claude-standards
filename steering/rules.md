@@ -41,7 +41,7 @@ Reply and write code comments in Chinese.
 - Cyclomatic complexity <= 15
 - Cognitive complexity <= 20
 - Nesting depth <= 4
-- After completing a feature or fixing multiple files, run `golangci-lint run --fix ./...` before presenting results. Fix auto-fixable issues silently; for warnings requiring judgment, analyze and fix properly (no blind nolint).
+- After completing a feature or fixing multiple files, run `make lint-fix` before presenting results (uses the project-pinned golangci-lint, never the global one). If the project has no `lint-fix` target, fall back to the pinned version without any global install: `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(cat .golangci-lint-version) run --fix ./...`. Fix auto-fixable issues silently; for warnings requiring judgment, analyze and fix properly (no blind nolint).
 
 ### Pattern: Early return to separate branches
 

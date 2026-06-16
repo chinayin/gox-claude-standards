@@ -36,7 +36,7 @@ indent_style = tab
 ## .gitignore
 
 ```gitignore
-# Build output (含 make lint 下载的 golangci-lint 二进制)
+# Build output (includes the golangci-lint binary downloaded by `make lint`)
 bin/
 
 # Local config overrides
@@ -58,25 +58,25 @@ config/*.local.yaml
 
 ## .golangci-lint-version
 
-锁定本项目使用的 golangci-lint 版本，作为**单一版本源**（本地与 CI 共用）。内容为一行版本号：
+Pins the golangci-lint version used by this project, serving as the **single version source** (shared by local and CI). Contents are a single version line:
 
 ```
 v2.12.2
 ```
 
-- 本地 `make lint` 据此自动下载锁定版本到 `./bin`，不依赖 brew / 全局安装
-- CI 用 `golangci-lint-action` 的 `version-file` 读取它
-- 升级 linter 只改这一个文件，本地和 CI 同步跟随
-- 注意：golangci-lint 官方预编译二进制按 release 时的 Go 版本编译，其版本若**低于** go.mod 的 `go` 指令会拒绝运行，所以锁定版本要选用 ≥ go.mod 版本编译的发行版
+- Local `make lint` downloads the pinned version to `./bin` accordingly, with no dependency on brew or a global install
+- CI reads it via the `version-file` input of `golangci-lint-action`
+- Upgrading the linter means editing only this one file; local and CI follow in sync
+- Note: official golangci-lint prebuilt binaries are compiled against the Go version current at release time. A binary compiled with a Go version **lower** than the `go` directive in go.mod will refuse to run, so pin a release built with Go >= the go.mod version
 
 ## Makefile
 
 Required targets (variable declarations are project-specific, not part of this standard):
 
 ```makefile
-.PHONY: help build run clean test lint lint-fix fmt tidy check install-tools ensure-lint
+.PHONY: help build run clean test lint lint-fix fmt check install-tools ensure-lint
 
-# golangci-lint 版本锁定（随项目走，升级改 .golangci-lint-version）
+# Pinned golangci-lint version (travels with the project; upgrade by editing .golangci-lint-version)
 GOLANGCI_VERSION := $(shell cat .golangci-lint-version)
 GOLANGCI := ./bin/golangci-lint
 
@@ -120,18 +120,18 @@ check: fmt lint test ## Full local check (run before commit)
 ### Makefile Rules
 
 - Default target is `help`, auto-generated from `## comments`
-- Every target must have `## comment` describing its purpose (internal targets like `ensure-lint` omit it to stay out of help)
+- Every target must have a `## comment` describing its purpose (internal targets like `ensure-lint` omit it to stay out of help)
 - Prefix commands with `@` to suppress echo
 - `build` depends on `clean` for clean output
 - Tests must include `-race` and `-timeout`
 - `check` is pre-commit full validation (format + lint + test)
-- **Lint 用项目锁定版本**：`lint`/`lint-fix` 依赖 `ensure-lint`，从 `.golangci-lint-version` 取版本、下载到 `./bin`，**绝不直接调全局 `golangci-lint`**（避免团队成员版本不一致）
+- **Lint uses the project-pinned version**: `lint`/`lint-fix` depend on `ensure-lint`, which reads the version from `.golangci-lint-version` and downloads it to `./bin`. **Never invoke a global `golangci-lint` directly** (avoids version drift across team members)
 - Unified linter: golangci-lint v2
 - Optional additions: `ci-check` (CI pipeline, no fmt), `docker-up/down/logs`
 
 ## CI Workflows
 
-CI 与本地共用版本源——**Go 版本读 `go.mod`，golangci-lint 版本读 `.golangci-lint-version`，workflow 内不写死任何版本**。
+CI shares version sources with local development — **the Go version is read from `go.mod`, the golangci-lint version from `.golangci-lint-version`, and no version is hardcoded inside the workflow**.
 
 `.github/workflows/lint.yml`:
 
@@ -167,10 +167,77 @@ jobs:
           version-file: .golangci-lint-version
 ```
 
-`test.yml` / `build.yml` 同样用 `actions/setup-go` 的 `go-version-file: go.mod`，不再用 matrix 写死 go 版本（除非真要测多版本）。
+`.github/workflows/test.yml`:
+
+```yaml
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: make test
+```
+
+`.github/workflows/build.yml`:
+
+```yaml
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Verify modules
+        run: go mod verify
+```
 
 ### CI Rules
 
-- 监听分支用仓库默认分支（统一 `main`）；workflow 的 `branches` 必须与默认分支一致，否则 push 不触发
-- Go 版本单一源 `go.mod`，golangci-lint 版本单一源 `.golangci-lint-version`
-- Actions 固定大版本（`@v6`/`@v9`），不用浮动 ref
+- Listen on the repository's default branch (standardized as `main`); the workflow `branches` must match the default branch, otherwise pushes won't trigger
+- Single source for the Go version (`go.mod`) and for the golangci-lint version (`.golangci-lint-version`)
+- Pin actions to a major version (`@v6` / `@v9`); do not use floating refs
