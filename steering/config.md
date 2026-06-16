@@ -34,7 +34,9 @@ viper Unmarshal uses mapstructure (not yaml tag) for field mapping. Rules:
 
 - If Go field name matches YAML key (case-insensitive): **no tags needed**
 - If Go field name differs from YAML key: **`mapstructure` tag is required**
-- Always add `yaml` tag when `mapstructure` is present (for non-viper YAML parsers)
+- Add a `yaml` tag alongside `mapstructure` **only if the struct is also consumed by a non-viper
+  YAML parser** (e.g. `gopkg.in/yaml`). gox/config reads `mapstructure` only, so a `mapstructure`-only
+  struct is correct and complete for config loading.
 
 ```go
 // Good — field name matches key, no tags needed
@@ -103,7 +105,8 @@ database.path → DATABASE_PATH
 
 | Scenario | Use env var | Use config file |
 |----------|-------------|-----------------|
-| Passwords/Tokens/Secrets | Yes | No |
+| Scalar secrets (single token/password/DSN) | Yes (Secret → env) | Or mounted `.local.yaml` |
+| Secrets inside a list/slice element | **No (viper cannot)** | **Yes — mounted `.local.yaml`** (see below) |
 | Certificate file paths (K8s Secret mount) | Yes | Yes |
 | Ports/Addresses (differ per environment) | Yes (override) | Yes (defaults) |
 | Engine type/strategy parameters | No | Yes |
@@ -119,6 +122,38 @@ const envRegisterToken = "REGISTER_TOKEN"  // used by agent token validator
 ```
 
 Such variables must be clearly documented in the corresponding package comments.
+
+## Secrets in List/Slice Elements (viper limitation)
+
+Viper (and thus gox/config) can only map env vars to **scalar** keys. It **cannot** inject an env var
+into an element of a YAML list/slice — there is no `endpoints.0.token` or `auth.keys.0.key` env binding
+viper honors. So the env-based secret path above works for scalar fields only; **secrets that live in
+list elements cannot come from env at all.**
+
+Such secrets are provided **only via a mounted `.local.yaml`** that overrides the committed base config
+(k8s mounts a Secret as the `.local.yaml`; docker mounts an operator-filled file):
+
+```yaml
+# committed config.yaml — template, secret left empty
+endpoints:
+  - name: primary
+    url: "https://api.example.com"
+    token: ""           # provided by mounted config.local.yaml (k8s Secret / docker mount)
+
+# mounted config.local.yaml — real value
+endpoints:
+  - name: primary
+    url: "https://api.example.com"
+    token: "<real-token>"
+```
+
+**⚠️ List merge is wholesale-replace, not per-element.** When `.local.yaml` redefines a list key, viper
+**replaces the entire slice** — it does not merge by index or by a `name` field. The override file must
+repeat the **complete** entry (all sibling fields), not just the secret; otherwise the base config's
+sibling fields are silently dropped.
+
+Do **not** try to work around this with `${VAR}` string interpolation or `os.Getenv` fallbacks for
+list-element secrets — that detour is exactly what the file-based override convention exists to avoid.
 
 ## File Structure (MUST)
 
